@@ -60,11 +60,16 @@ pub fn linkSdl3(
     sdl_translate_c: *std.Build.Step.TranslateC,
     sdl3_options: *std.Build.Step.Options,
     opts: DvuiModuleOptions,
+    enable_sdl_ttf: bool,
 ) void {
     if (opts.b.systemIntegrationOption("sdl3", .{})) {
         // SDL3 from system
         sdl3_options.addOption(std.SemanticVersion, "version", .{ .major = 3, .minor = 0, .patch = 0 });
         sdl_mod.linkSystemLibrary("SDL3", .{});
+        if (enable_sdl_ttf) {
+            sdl_translate_c.defineCMacro("DVUI_USE_SDL3_TTF", "1");
+            sdl_mod.linkSystemLibrary("SDL3_ttf", .{});
+        }
     } else {
         // SDL3 compiled from source
 
@@ -96,16 +101,95 @@ pub fn linkSdl3(
                 .library_path = opts.sdl3_library_path,
             });
         if (sdl3_dep) |sdl3| {
+            const sdl3_artifact = sdl3.artifact("SDL3");
             if (opts.target.result.abi.isAndroid()) {
-                sdl_mod.addIncludePath(sdl3.artifact("SDL3").getEmittedIncludeTree());
+                sdl_mod.addIncludePath(sdl3_artifact.getEmittedIncludeTree());
                 addAndroidLibC(sdl_mod, opts);
             } else {
-                sdl_translate_c.addIncludePath(sdl3.artifact("SDL3").getEmittedIncludeTree());
-                sdl_mod.linkLibrary(sdl3.artifact("SDL3"));
+                sdl_translate_c.addIncludePath(sdl3_artifact.getEmittedIncludeTree());
+                sdl_mod.addIncludePath(sdl3_artifact.getEmittedIncludeTree());
+                sdl_mod.linkLibrary(sdl3_artifact);
+            }
+            if (enable_sdl_ttf) {
+                addSdlTtf(sdl_mod, sdl_translate_c, opts);
             }
         }
     }
     sdl_mod.addOptions("sdl_options", sdl3_options);
+}
+
+fn addSdlTtf(
+    sdl_mod: *std.Build.Module,
+    sdl_translate_c: *std.Build.Step.TranslateC,
+    opts: DvuiModuleOptions,
+) void {
+    const b = opts.b;
+    const freetype = b.lazyDependency("freetype", .{
+        .target = opts.target,
+        .optimize = opts.optimize,
+    }) orelse @panic("SDL3_ttf requires the freetype dependency");
+
+    const harfbuzz_module = b.createModule(.{
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .link_libc = true,
+        .link_libcpp = true,
+    });
+    const harfbuzz = b.addLibrary(.{
+        .name = "dvui_harfbuzz",
+        .root_module = harfbuzz_module,
+    });
+    harfbuzz.root_module.addIncludePath(b.path("vendor/harfbuzz/upstream/src"));
+    harfbuzz.root_module.addIncludePath(freetype.path("include"));
+    harfbuzz.root_module.linkLibrary(freetype.artifact("freetype"));
+    harfbuzz.root_module.addCSourceFile(.{
+        .file = b.path("vendor/harfbuzz/upstream/src/harfbuzz.cc"),
+        .flags = &.{
+            "-DHAVE_STDBOOL_H",
+            "-DHAVE_FREETYPE=1",
+            "-DHAVE_FT_GET_VAR_BLEND_COORDINATES=1",
+            "-DHAVE_FT_SET_VAR_BLEND_COORDINATES=1",
+            "-DHAVE_FT_DONE_MM_VAR=1",
+            "-DHAVE_FT_GET_TRANSFORM=1",
+        },
+    });
+    if (opts.target.result.os.tag != .windows) {
+        harfbuzz.root_module.addCMacro("HAVE_UNISTD_H", "1");
+        harfbuzz.root_module.addCMacro("HAVE_SYS_MMAN_H", "1");
+        harfbuzz.root_module.addCMacro("HAVE_PTHREAD", "1");
+    }
+    if (opts.target.result.os.tag == .linux) {
+        harfbuzz.root_module.linkSystemLibrary("m", .{});
+    }
+
+    sdl_translate_c.defineCMacro("DVUI_USE_SDL3_TTF", "1");
+    sdl_translate_c.addIncludePath(b.path("vendor/SDL_ttf/include"));
+    sdl_mod.addIncludePath(b.path("vendor/SDL_ttf/include"));
+    sdl_mod.addIncludePath(b.path("vendor/SDL_ttf/src"));
+    sdl_mod.addIncludePath(b.path("vendor/harfbuzz/upstream/src"));
+    sdl_mod.addIncludePath(freetype.path("include"));
+    sdl_mod.linkLibrary(harfbuzz);
+    sdl_mod.linkLibrary(freetype.artifact("freetype"));
+    sdl_mod.link_libcpp = true;
+    sdl_mod.addCSourceFiles(.{
+        .root = b.path("vendor/SDL_ttf"),
+        .files = &.{
+            "src/SDL_hashtable.c",
+            "src/SDL_hashtable_ttf.c",
+            "src/SDL_gpu_textengine.c",
+            "src/SDL_renderer_textengine.c",
+            "src/SDL_surface_textengine.c",
+            "src/SDL_ttf.c",
+        },
+        .flags = &.{
+            "-DBUILD_SDL",
+            "-DSDL_BUILD_MAJOR_VERSION=3",
+            "-DSDL_BUILD_MINOR_VERSION=2",
+            "-DSDL_BUILD_MICRO_VERSION=2",
+            "-DTTF_USE_HARFBUZZ=1",
+            "-std=c99",
+        },
+    });
 }
 
 /// Resolve the macOS SDK path via `xcrun --show-sdk-path`. Used to wire SDK include
@@ -155,6 +239,7 @@ pub fn build(b: *std.Build) !void {
     const tiny_file_dialogs_option = b.option(bool, "tiny-file-dialogs", "OS-native file dialogs (default is backend specific)");
     const stb_image_option = b.option(bool, "stb-image", "Build stb_image (default is backend specific, some include stb_image)");
     const tree_sitter_option = b.option(bool, "tree-sitter", "Build tree sitter (default is backend specific)");
+    const sdl3_ttf_option = b.option(bool, "sdl3-ttf", "Build SDL3_ttf with FreeType and HarfBuzz") orelse false;
     const tvg_option = b.option(bool, "tvg", "Build tvg (default true)") orelse true;
 
     const wio_unix_backends = b.option([]const u8, "wio_unix_backends", "List of wio backends for Unix (default: all)");
@@ -250,6 +335,7 @@ pub fn build(b: *std.Build) !void {
         .linux_display_backend = linux_display_backend,
         .stb_image = stb_image_option,
         .tree_sitter = tree_sitter_option,
+        .sdl3_ttf = sdl3_ttf_option,
         .tvg = tvg_option,
         .wio_unix_backends = wio_unix_backends,
         .glfw_linux_display = glfw_linux_display,
@@ -546,7 +632,7 @@ pub fn buildBackend(backend: Backend, test_dvui_and_app: bool, dvui_opts_in: Dvu
             //     "callbacks",
             //     b.option(bool, "sdl3gpu-callbacks", "Use callbacks for live resizing on windows/mac"),
             // );
-            linkSdl3(sdl_mod, sdl_translate_c, sdl3_options, dvui_opts_in);
+            linkSdl3(sdl_mod, sdl_translate_c, sdl3_options, dvui_opts_in, false);
 
             const dvui_sdl = addDvuiModule("dvui_sdl3gpu", dvui_opts);
             // dvui_opts.addChecks(dvui_sdl, "dvui_sdl3gpu");
@@ -616,7 +702,7 @@ pub fn buildBackend(backend: Backend, test_dvui_and_app: bool, dvui_opts_in: Dvu
                 b.option(bool, "sdl3-callbacks", "Use callbacks for live resizing on windows/mac"),
             );
 
-            linkSdl3(sdl_mod, sdl_translate_c, sdl3_options, dvui_opts_in);
+            linkSdl3(sdl_mod, sdl_translate_c, sdl3_options, dvui_opts_in, dvui_opts.sdl3_ttf);
 
             const dvui_sdl = addDvuiModule("dvui_sdl3", dvui_opts);
             if (!target.result.abi.isAndroid()) {
@@ -1023,6 +1109,7 @@ const DvuiModuleOptions = struct {
     linux_display_backend: ?LinuxDisplayBackend = null,
     stb_image: ?bool,
     tree_sitter: ?bool,
+    sdl3_ttf: bool = false,
     tvg: bool,
     wio_unix_backends: ?[]const u8 = null,
     glfw_linux_display: ?GlfwLinuxDisplay = null,

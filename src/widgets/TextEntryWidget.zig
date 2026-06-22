@@ -1141,18 +1141,18 @@ pub fn processEvent(self: *TextEntryWidget, e: *Event) void {
                             sel.start = sel.cursor;
                             self.textLayout.scroll_to_cursor = true;
                         } else if (sel.cursor > 0) {
-                            // delete character just before cursor
-                            //
-                            // A utf8 char might consist of more than one byte.
-                            // Find the beginning of the last byte by iterating over
-                            // the string backwards. The first byte of a utf8 char
-                            // does not have the pattern 10xxxxxx.
-                            var i: usize = 1;
-                            while (sel.cursor - i > 0 and self.text[sel.cursor - i] & 0xc0 == 0x80) : (i += 1) {}
-                            self.textChangedRemoved(sel.cursor - i, sel.cursor);
-                            @memmove(self.text[sel.cursor - i ..][0 .. self.len - sel.cursor], self.text[sel.cursor..self.len]);
-                            self.setLen(self.len - i);
-                            sel.cursor -= i;
+                            const previous = if (dvui.currentWindow().text_engine) |engine|
+                                engine.previousBoundary(self.data().options.fontGet(), self.text[0..self.len], sel.cursor)
+                            else previous_codepoint: {
+                                // A utf8 codepoint can consist of more than one byte.
+                                var i: usize = 1;
+                                while (sel.cursor - i > 0 and self.text[sel.cursor - i] & 0xc0 == 0x80) : (i += 1) {}
+                                break :previous_codepoint sel.cursor - i;
+                            };
+                            self.textChangedRemoved(previous, sel.cursor);
+                            @memmove(self.text[previous..][0 .. self.len - sel.cursor], self.text[sel.cursor..self.len]);
+                            self.setLen(self.len - (sel.cursor - previous));
+                            sel.cursor = previous;
                             sel.start = sel.cursor;
                             sel.end = sel.cursor;
                             self.textLayout.scroll_to_cursor = true;
@@ -1196,16 +1196,18 @@ pub fn processEvent(self: *TextEntryWidget, e: *Event) void {
                             sel.start = sel.cursor;
                             self.textLayout.scroll_to_cursor = true;
                         } else if (sel.cursor < self.len) {
-                            // delete the character just after the cursor
-                            //
-                            // A utf8 char might consist of more than one byte.
-                            const ii = std.unicode.utf8ByteSequenceLength(self.text[sel.cursor]) catch 1;
-                            const i = @min(ii, self.len - sel.cursor);
+                            const next = if (dvui.currentWindow().text_engine) |engine|
+                                engine.nextBoundary(self.data().options.fontGet(), self.text[0..self.len], sel.cursor)
+                            else
+                                sel.cursor + @min(
+                                    std.unicode.utf8ByteSequenceLength(self.text[sel.cursor]) catch 1,
+                                    self.len - sel.cursor,
+                                );
 
-                            self.textChangedRemoved(sel.cursor, sel.cursor + i);
-                            const remaining = self.len - (sel.cursor + i);
-                            @memmove(self.text[sel.cursor..][0..remaining], self.text[sel.cursor + i ..][0..remaining]);
-                            self.setLen(self.len - i);
+                            self.textChangedRemoved(sel.cursor, next);
+                            const remaining = self.len - next;
+                            @memmove(self.text[sel.cursor..][0..remaining], self.text[next..][0..remaining]);
+                            self.setLen(self.len - (next - sel.cursor));
                             self.textLayout.scroll_to_cursor = true;
                         }
                     }

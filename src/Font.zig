@@ -306,6 +306,10 @@ pub const TextSizeOptions = struct {
 ///
 /// Only valid between `Window.begin`and `Window.end`.
 pub fn textSizeEx(self: Font, text: []const u8, opts: TextSizeOptions) Size {
+    if (dvui.currentWindow().text_engine) |engine| {
+        return engine.measure(self, text, opts);
+    }
+
     // ask for a font that matches the natural display pixels so we get a more
     // accurate size
     const ss = dvui.parentGet().screenRectScale(Rect{}).s;

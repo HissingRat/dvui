@@ -29,6 +29,9 @@ text_input_rect: ?Rect.Natural = null,
 
 snap_to_pixels: bool = true,
 kerning: bool = true,
+/// Optional application-provided shaped-text engine. When present, Font
+/// measurement and renderText use it as the single source of glyph geometry.
+text_engine: ?dvui.TextEngine = null,
 /// The alpha value for all rendering. All colors alpha values will be
 /// multiplied by this value.
 alpha: f32 = 1.0,

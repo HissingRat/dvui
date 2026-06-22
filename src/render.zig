@@ -152,6 +152,24 @@ pub fn renderText(opts: TextOptions) Backend.GenericError!void {
         return;
     }
 
+    if (cw.text_engine) |engine| {
+        engine.render(.{
+            .font = opts.font,
+            .text = utf8_text,
+            .rs = opts.rs,
+            .p = opts.p,
+            .color = opts.color.opacity(cw.alpha),
+            .sel_start = opts.sel_start,
+            .sel_end = opts.sel_end,
+            .sel_color = opts.sel_color,
+            .rotation = opts.rotation,
+            .background_color = opts.background_color,
+            .debug = opts.debug,
+            .kerning = opts.kerning,
+        }) catch return error.BackendError;
+        return;
+    }
+
     const target_size = opts.font.size * opts.rs.s;
     const sized_font = opts.font.withSize(target_size);
 

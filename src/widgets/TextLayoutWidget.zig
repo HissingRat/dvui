@@ -819,8 +819,13 @@ fn selMoveText(self: *TextLayoutWidget, txt: []const u8, start_idx: usize) void 
                 } else if (cur < start_idx + txt.len) {
                     const newline = txt[cur - start_idx] == '\n';
 
-                    // move cursor one utf8 char right
-                    cur += std.unicode.utf8ByteSequenceLength(txt[cur - start_idx]) catch 1;
+                    if (dvui.currentWindow().text_engine) |engine| {
+                        const font = self.data().options.fontGet();
+                        cur = start_idx + engine.nextBoundary(font, txt, cur - start_idx);
+                    } else {
+                        // move cursor one utf8 char right
+                        cur += std.unicode.utf8ByteSequenceLength(txt[cur - start_idx]) catch 1;
+                    }
 
                     self.selection.moveCursor(cur, clr.select);
                     if (cur == start_idx + txt.len and !newline) {
@@ -987,11 +992,19 @@ fn cursorSeen(self: *TextLayoutWidget) void {
                             self.selection.affinity = .before;
                         }
                     } else {
-                        // move cursor one utf8 char left
-                        cur -|= 1;
-                        while (cur > 0 and oldcur - cur <= clr.buf.len and clr.buf[clr.buf.len + cur - oldcur] & 0xc0 == 0x80) {
-                            // in the middle of a multibyte char
+                        if (dvui.currentWindow().text_engine) |engine| {
+                            const available = @min(oldcur, clr.buf.len);
+                            const lookback = clr.buf[clr.buf.len - available ..];
+                            const local_cursor = @min(cur, available);
+                            const font = self.data().options.fontGet();
+                            cur = oldcur - available + engine.previousBoundary(font, lookback, local_cursor);
+                        } else {
+                            // move cursor one utf8 char left
                             cur -|= 1;
+                            while (cur > 0 and oldcur - cur <= clr.buf.len and clr.buf[clr.buf.len + cur - oldcur] & 0xc0 == 0x80) {
+                                // in the middle of a multibyte char
+                                cur -|= 1;
+                            }
                         }
 
                         var bail = false;
@@ -1492,21 +1505,32 @@ fn addTextEx(self: *TextLayoutWidget, text_in: []const u8, action: AddTextExActi
         // record screen position of selection for touch editing (use s for
         // height in case we are calling textSize with an empty slice)
         if (self.selection.start >= self.bytes_seen and self.selection.start <= self.bytes_seen + end) {
-            const start_off = font.textSize(txt[0..self.selection.start -| self.bytes_seen]);
-            self.sel_start_r_new = .{ .x = self.insert_pt.x + start_off.w, .y = self.insert_pt.y, .w = 1, .h = s.h };
+            const offset = self.selection.start -| self.bytes_seen;
+            const start_x = if (cw.text_engine) |engine|
+                engine.caretX(font, txt[0..end], offset)
+            else
+                font.textSize(txt[0..offset]).w;
+            self.sel_start_r_new = .{ .x = self.insert_pt.x + start_x, .y = self.insert_pt.y, .w = 1, .h = s.h };
         }
 
         if (self.selection.end >= self.bytes_seen and self.selection.end <= self.bytes_seen + end) {
-            const end_off = font.textSize(txt[0..self.selection.end -| self.bytes_seen]);
-            self.sel_end_r_new = .{ .x = self.insert_pt.x + end_off.w, .y = self.insert_pt.y, .w = 1, .h = s.h };
+            const offset = self.selection.end -| self.bytes_seen;
+            const end_x = if (cw.text_engine) |engine|
+                engine.caretX(font, txt[0..end], offset)
+            else
+                font.textSize(txt[0..offset]).w;
+            self.sel_end_r_new = .{ .x = self.insert_pt.x + end_x, .y = self.insert_pt.y, .w = 1, .h = s.h };
         }
 
         if (!self.cursor_seen and (self.selection.cursor < self.bytes_seen + end or (self.selection.cursor == self.bytes_seen + end and self.selection.affinity == .before))) {
             std.debug.assert(self.selection.cursor >= self.bytes_seen);
             const cursor_offset = self.selection.cursor - self.bytes_seen;
             const text_to_cursor = txt[0..cursor_offset];
-            const size = font.textSize(text_to_cursor);
-            self.cursor_rect = Rect{ .x = self.insert_pt.x + size.w, .y = self.insert_pt.y, .w = 1, .h = s.h };
+            const cursor_x = if (cw.text_engine) |engine|
+                engine.caretX(font, txt[0..end], cursor_offset)
+            else
+                font.textSize(text_to_cursor).w;
+            self.cursor_rect = Rect{ .x = self.insert_pt.x + cursor_x, .y = self.insert_pt.y, .w = 1, .h = s.h };
 
             self.selMoveText(text_to_cursor, self.bytes_seen);
             self.cursorSeen(); // might alter selection

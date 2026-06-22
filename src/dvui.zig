@@ -59,6 +59,7 @@ pub const RectScale = @import("RectScale.zig");
 pub const ScrollInfo = @import("ScrollInfo.zig");
 pub const Size = @import("Size.zig").Size;
 pub const Theme = @import("Theme.zig");
+pub const TextEngine = @import("TextEngine.zig");
 pub const Triangles = @import("Triangles.zig");
 pub const Vertex = @import("Vertex.zig");
 pub const Widget = @import("Widget.zig");
@@ -983,6 +984,21 @@ pub fn kerningSet(kern: bool) bool {
     const cw = currentWindow();
     const old = cw.kerning;
     cw.kerning = kern;
+    return old;
+}
+
+/// Set the shaped-text engine used by font measurement, text rendering, and
+/// editable-text cursor boundaries. Pass null to restore DVUI's built-in
+/// codepoint renderer.
+///
+/// The caller owns the engine and its context. They must remain valid for the
+/// lifetime of the Window or until replaced.
+///
+/// Only valid between `Window.begin` and `Window.end`.
+pub fn textEngineSet(engine: ?TextEngine) ?TextEngine {
+    const cw = currentWindow();
+    const old = cw.text_engine;
+    cw.text_engine = engine;
     return old;
 }
 

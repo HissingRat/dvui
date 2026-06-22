@@ -30,3 +30,7 @@
 
 #define SDL_MAIN_HANDLED
 #include "SDL3/SDL_main.h"
+
+#ifdef DVUI_USE_SDL3_TTF
+#include "SDL3_ttf/SDL_ttf.h"
+#endif
