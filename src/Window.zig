@@ -349,6 +349,11 @@ pub fn native(self: *Self) Native {
     return self.backend.native(self);
 }
 
+/// Change the title of the OS window, if supported by the backend.
+pub fn title(self: *Self, new_title: []const u8) void {
+    self.backend.title(self, new_title);
+}
+
 pub fn addFont(self: *Self, name: []const u8, ttf_bytes: []const u8, ttf_bytes_allocator: ?std.mem.Allocator) (std.mem.Allocator.Error || dvui.Font.Error)!void {
     try self.fonts.database.ensureUnusedCapacity(self.gpa, 1);
     // TODO: try to get this info from the ttf file, and also add override options
@@ -1262,6 +1267,9 @@ pub fn begin(
     // Retain capacity because it's likely to be small and that the same capacity will be needed again
     self.tab_index.clearRetainingCapacity();
 
+    // call this before we call any backend functions like pixelSize or windowSize
+    try self.backend.begin(self.arena());
+
     self.rect_pixels = .fromSize(self.backend.pixelSize());
     dvui.clipSet(self.rect_pixels);
 
@@ -1275,7 +1283,7 @@ pub fn begin(
     self.data().rect.h = @round(self.data().rect.h * 100.0) / 100.0;
     self.natural_scale = @round(self.natural_scale * 100.0) / 100.0;
 
-    dvui.log.debug("window size {d} x {d} renderer size {d} x {d} scale {d} system content scale {d} dvui content_scale {d}", .{ self.data().rect.w, self.data().rect.h, self.rect_pixels.w, self.rect_pixels.h, self.natural_scale, sysContentScale, self.content_scale });
+    //dvui.log.debug("window size {d} x {d} renderer size {d} x {d} scale {d} system content scale {d} dvui content_scale {d}", .{ self.data().rect.w, self.data().rect.h, self.rect_pixels.w, self.rect_pixels.h, self.natural_scale, sysContentScale, self.content_scale });
 
     try self.subwindows.add(self.gpa, self.data().id, self.data().rect, self.rect_pixels, false, null, true);
     _ = self.subwindows.setCurrent(self.data().id, .cast(self.data().rect));
@@ -1313,8 +1321,6 @@ pub fn begin(
     self.data().register();
 
     self.layout = .{};
-
-    try self.backend.begin(self.arena());
 }
 
 fn positionMouseEventAdd(self: *Self) std.mem.Allocator.Error!void {
@@ -1575,9 +1581,11 @@ pub fn end(self: *Self, opts: endOptions) !?u32 {
                 dvui.tabIndexPrev(e.num);
             }
         } else if (e.evt == .window) {
-            if (e.evt.window.action == .close)
-                self.close()
-            else if (e.evt.window.action == .leave) {
+            if (e.evt.window.action == .close) {
+                e.handle(@src(), self.data());
+                self.close();
+                self.refreshWindow(@src(), null);
+            } else if (e.evt.window.action == .leave) {
                 std.debug.assert(e.target_windowId == self.data().id);
                 e.handle(@src(), self.data());
                 // Put off-screen to avoid things like hover to appear stucked
@@ -1585,7 +1593,11 @@ pub fn end(self: *Self, opts: endOptions) !?u32 {
                 self.refreshWindow(@src(), null);
             }
         } else if (e.evt == .app) {
-            if (e.evt.app.action == .quit) self.close();
+            if (e.evt.app.action == .quit) {
+                e.handle(@src(), self.data());
+                self.close();
+                self.refreshWindow(@src(), null);
+            }
         }
     }
 

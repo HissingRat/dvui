@@ -13,6 +13,9 @@ scale: f32,
 arena: std.mem.Allocator = undefined, // assigned in begin()
 mod: dvui.enums.Mod = .none,
 touch: [10]dvui.Point = @splat(.{ .x = std.math.inf(f32), .y = std.math.inf(f32) }),
+clear_window_on_begin: bool = true,
+
+manage_backend_tracking: dvui.Backend.Common.TrackManageBackend = .{},
 
 pub fn backend(self: *@This(), renderer: *dvui.render_backend) dvui.Backend {
     return .init(self, renderer);
@@ -53,6 +56,10 @@ pub fn sleep(self: *@This(), ns: u64) void {
 
 pub fn begin(self: *@This(), arena: std.mem.Allocator) !void {
     self.arena = arena;
+    if (self.clear_window_on_begin) {
+        dvui.render_backend.clear();
+    }
+    self.manage_backend_tracking.reset_begin();
 }
 
 pub fn end(_: *@This()) !void {}
@@ -118,6 +125,7 @@ pub fn textInputRect(self: *@This(), maybe_rect: ?dvui.Rect.Natural) void {
     } else {
         self.window.disableTextInput();
     }
+    self.manage_backend_tracking.check(.textInputRect);
 }
 
 pub fn setCursor(self: *@This(), cursor: dvui.enums.Cursor) void {
@@ -136,20 +144,13 @@ pub fn setCursor(self: *@This(), cursor: dvui.enums.Cursor) void {
         .hand => .pointer,
         .hidden => .none,
     });
+    self.manage_backend_tracking.check(.setCursor);
 }
 
 pub fn addEvent(self: *@This(), win: *dvui.Window, event: wio.Event) !bool {
     switch (event) {
         .close => {
             try win.addEventWindow(.{ .action = .close });
-            return false;
-        },
-        .focused => {
-            const modifiers = wio.getModifiers();
-            if (modifiers.shift) self.mod.combine(.lshift);
-            if (modifiers.control) self.mod.combine(.lcontrol);
-            if (modifiers.alt) self.mod.combine(.lalt);
-            if (modifiers.gui) self.mod.combine(.lcommand);
             return false;
         },
         .unfocused => {
@@ -166,6 +167,14 @@ pub fn addEvent(self: *@This(), win: *dvui.Window, event: wio.Event) !bool {
         },
         .scale => |scale| {
             self.scale = scale;
+            return false;
+        },
+        .modifiers => |modifiers| {
+            self.mod = .none;
+            if (modifiers.shift) self.mod.combine(.lshift);
+            if (modifiers.control) self.mod.combine(.lcontrol);
+            if (modifiers.alt) self.mod.combine(.lalt);
+            if (modifiers.gui) self.mod.combine(.lcommand);
             return false;
         },
         .char => |char| {
@@ -185,22 +194,6 @@ pub fn addEvent(self: *@This(), win: *dvui.Window, event: wio.Event) !bool {
 
             if (maybe_mouse) |mouse| {
                 return try win.addEventMouseButton(mouse, if (event == .button_press) .press else .release);
-            }
-
-            const mod: dvui.enums.Mod = switch (button) {
-                // left and right are not distinguished to match wio.getModifiers()
-                .left_control, .right_control => .lcontrol,
-                .left_shift, .right_shift => .lshift,
-                .left_alt, .right_alt => .lalt,
-                .left_gui, .right_gui => .lcommand,
-                else => .none,
-            };
-            if (mod != .none) {
-                if (event == .button_press) {
-                    self.mod.combine(mod);
-                } else {
-                    self.mod.unset(mod);
-                }
             }
 
             return try win.addEventKey(.{
