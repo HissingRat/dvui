@@ -239,7 +239,7 @@ pub fn build(b: *std.Build) !void {
     const tiny_file_dialogs_option = b.option(bool, "tiny-file-dialogs", "OS-native file dialogs (default is backend specific)");
     const stb_image_option = b.option(bool, "stb-image", "Build stb_image (default is backend specific, some include stb_image)");
     const tree_sitter_option = b.option(bool, "tree-sitter", "Build tree sitter (default is backend specific)");
-    const sdl3_ttf_option = b.option(bool, "sdl3-ttf", "Build SDL3_ttf with FreeType and HarfBuzz") orelse false;
+    const sdl3_ttf_option = b.option(bool, "sdl3_ttf", "Build SDL3_ttf with FreeType and HarfBuzz") orelse false;
     const tvg_option = b.option(bool, "tvg", "Build tvg (default true)") orelse true;
 
     const wio_unix_backends = b.option([]const u8, "wio_unix_backends", "List of wio backends for Unix (default: all)");
