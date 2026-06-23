@@ -400,6 +400,11 @@ pub fn deinit(self: *Self) void {
 
     if (dvui.accesskit_enabled) self.accesskit.deinit();
 
+    if (self.text_engine) |engine| {
+        self.text_engine = null;
+        engine.deinit();
+    }
+
     self.data_store.deinit(self.gpa);
 
     self.texture_cache.deinit(self.gpa, self.backend);

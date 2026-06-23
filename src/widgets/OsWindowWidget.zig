@@ -24,8 +24,8 @@ pub const ChildOsWindow = struct {
     has_begin: bool = false,
 
     pub fn deinit(self: ChildOsWindow, alloc: std.mem.Allocator) void {
-        self.backend.deinit();
         self.dvui_win.deinit();
+        self.backend.deinit();
         alloc.destroy(self.backend);
         alloc.destroy(self.dvui_win);
     }

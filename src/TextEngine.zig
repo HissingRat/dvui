@@ -6,6 +6,9 @@ context: *anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
+    deinit: ?*const fn (
+        context: *anyopaque,
+    ) void = null,
     measure: *const fn (
         context: *anyopaque,
         font: dvui.Font,
@@ -57,6 +60,12 @@ pub const RenderOptions = struct {
     debug: bool = false,
     kerning: ?bool = null,
 };
+
+pub fn deinit(self: TextEngine) void {
+    if (self.vtable.deinit) |deinit_fn| {
+        deinit_fn(self.context);
+    }
+}
 
 pub fn measure(
     self: TextEngine,
